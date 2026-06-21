@@ -1,0 +1,36 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root { --bs-font-sans-serif: 'Inter', system-ui, -apple-system, sans-serif; }
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: #f8f9fc;
+  color: #2d3748;
+  min-height: 100vh;
+}
+
+.card { border: none; border-radius: 0.75rem; }
+.card-header { border-radius: 0.75rem 0.75rem 0 0 !important; }
+
+.table > :not(caption) > * > * { padding: 0.85rem 1rem; vertical-align: middle; }
+
+.btn { border-radius: 0.5rem; font-weight: 500; transition: all 0.15s ease-in-out; }
+
+.btn-primary {
+  background: linear-gradient(135deg, #4a6cf7, #6a3de8);
+  border: none;
+  box-shadow: 0 2px 8px rgba(74, 108, 247, 0.35);
+  &:hover {
+    background: linear-gradient(135deg, #3a5ce6, #5a2dd7);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(74, 108, 247, 0.45);
+  }
+}
+
+.form-control, .form-select {
+  border-radius: 0.5rem;
+  border: 1.5px solid #e2e8f0;
+  &:focus { border-color: #4a6cf7; box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.15); }
+}
+
+footer { background-color: #fff; border-color: #e2e8f0 !important; }
