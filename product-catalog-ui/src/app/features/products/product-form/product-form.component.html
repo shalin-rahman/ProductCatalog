@@ -1,0 +1,66 @@
+<div class="container mt-4" style="max-width: 640px;">
+  <div class="mb-4">
+    <a routerLink="/products" class="text-decoration-none text-muted">
+      <i class="bi bi-arrow-left me-1"></i> Back to Products
+    </a>
+  </div>
+  <div class="card shadow-sm">
+    <div class="card-header bg-primary text-white">
+      <h1 class="h5 mb-0 fw-bold">
+        {{ isEditMode ? 'Edit Product' : 'Add New Product' }}
+      </h1>
+    </div>
+    <div class="card-body p-4">
+      @if (errorMessage) {
+        <div class="alert alert-danger">{{ errorMessage }}</div>
+      }
+      <form [formGroup]="productForm" (ngSubmit)="onSubmit()" novalidate>
+        <div class="mb-3">
+          <label for="name" class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
+          <input id="name" type="text" class="form-control"
+            [class.is-invalid]="f['name'].touched && f['name'].invalid"
+            [class.is-valid]="f['name'].touched && f['name'].valid"
+            formControlName="name" placeholder="e.g. Laptop Pro 15" />
+          @if (f['name'].touched && f['name'].errors) {
+            <div class="invalid-feedback">
+              @if (f['name'].errors['required']) { Name is required. }
+              @if (f['name'].errors['maxlength']) { Cannot exceed 100 characters. }
+            </div>
+          }
+        </div>
+        <div class="mb-3">
+          <label for="description" class="form-label fw-semibold">Description</label>
+          <textarea id="description" class="form-control"
+            [class.is-invalid]="f['description'].touched && f['description'].invalid"
+            formControlName="description" rows="3" placeholder="Optional..."></textarea>
+          @if (f['description'].touched && f['description'].errors?.['maxlength']) {
+            <div class="invalid-feedback">Cannot exceed 500 characters.</div>
+          }
+        </div>
+        <div class="mb-4">
+          <label for="price" class="form-label fw-semibold">Price ($) <span class="text-danger">*</span></label>
+          <div class="input-group">
+            <span class="input-group-text">$</span>
+            <input id="price" type="number" step="0.01" min="0.01" class="form-control"
+              [class.is-invalid]="f['price'].touched && f['price'].invalid"
+              [class.is-valid]="f['price'].touched && f['price'].valid"
+              formControlName="price" placeholder="0.00" />
+            @if (f['price'].touched && f['price'].errors) {
+              <div class="invalid-feedback">
+                @if (f['price'].errors['required']) { Price is required. }
+                @if (f['price'].errors['min']) { Must be greater than $0.00. }
+              </div>
+            }
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary" [disabled]="isSubmitting">
+            @if (isSubmitting) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            {{ isEditMode ? 'Update Product' : 'Create Product' }}
+          </button>
+          <a routerLink="/products" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
