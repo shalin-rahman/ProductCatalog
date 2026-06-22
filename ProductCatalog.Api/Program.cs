@@ -27,6 +27,10 @@ builder.Services.AddAutoMapper(typeof(MappingProfile).Assembly);
 // Controllers with JSON serialization
 builder.Services.AddControllers();
 
+// Global Exception Handling (using .NET 8 IExceptionHandler)
+builder.Services.AddExceptionHandler<ProductCatalog.Api.Middleware.GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
+
 // Swagger / OpenAPI for interactive API documentation
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -63,6 +67,12 @@ if (app.Environment.IsDevelopment())
         c.RoutePrefix = string.Empty; // Serve Swagger at the root URL
     });
 }
+
+// -----------------------------------------------------------------------
+// GLOBAL EXCEPTION HANDLER
+// Must be early in the pipeline to catch errors from downstream middleware
+// -----------------------------------------------------------------------
+app.UseExceptionHandler();
 
 app.UseHttpsRedirection();
 
