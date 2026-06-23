@@ -64,7 +64,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "Product Catalog API v1");
-        c.RoutePrefix = string.Empty; // Serve Swagger at the root URL
+        c.RoutePrefix = "swagger";
     });
 }
 
