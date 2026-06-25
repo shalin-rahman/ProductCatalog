@@ -338,6 +338,26 @@ Step 5: Next time you change the model (e.g., add a "Stock" int property):
         It generates an ALTER TABLE script — only the delta, not a full rebuild.
 ```
 
+**Running Migrations from Visual Studio (Package Manager Console):**
+
+You don't need a terminal — Visual Studio has a built-in **Package Manager Console (PMC)** that runs EF Core commands directly:
+
+1. Open Visual Studio → **Tools** → **NuGet Package Manager** → **Package Manager Console**
+2. Ensure the **Default project** dropdown (top of the PMC window) is set to `ProductCatalog.Api`
+3. Use `Add-Migration` / `Update-Database` instead of `dotnet ef` commands:
+
+| Terminal (`dotnet ef`) | VS Package Manager Console | Notes |
+|---|---|---|
+| `dotnet ef migrations add InitialCreate` | `Add-Migration InitialCreate` | Creates migration files |
+| `dotnet ef database update` | `Update-Database` | Applies pending migrations |
+| `dotnet ef migrations remove` | `Remove-Migration` | Removes last unapplied migration |
+| `dotnet ef migrations list` | `Get-Migration` | Lists all migrations |
+| `dotnet ef database update 0` | `Update-Database -Migration 0` | Reverts all migrations |
+| `dotnet ef migrations script` | `Script-Migration` | Generates SQL script |
+| `dotnet ef database drop --force` | `Drop-Database` | Drops the database |
+
+> **Key difference:** PMC commands use PowerShell-style verb-noun naming (`Add-Migration`) while the CLI uses `dotnet ef migrations add`. Both produce identical results — choose whichever fits your workflow.
+
 **The `__EFMigrationsHistory` table:** Every time a migration runs, EF Core writes its name into a hidden `__EFMigrationsHistory` table in the database. When `Migrate()` is called on startup, EF Core checks this table and only runs migrations that have NOT yet been applied. This is how it knows "I've already run `InitialCreate` — I only need to run `AddStockToProduct`." This makes the auto-migration on startup in `Program.cs` completely safe to run on every boot.
 
 **Change Tracking — EF Core's invisible power:**
@@ -376,11 +396,11 @@ AutoMapper scans both the source and destination types and maps properties with 
 
 **The three mappings in `MappingProfile.cs` and why each exists:**
 
-| Mapping | Direction | Used when | Notes |
-|---------|-----------|-----------|-------|
-| `Product → ProductDto` | Entity to DTO | GET responses | Includes `Id`; safe to expose |
-| `ProductCreateDto → Product` | DTO to Entity | POST (Create) | No `Id` in DTO — SQL Server assigns it via IDENTITY |
-| `ProductUpdateDto → Product` | DTO to Entity | PUT (Update) | No `Id` in DTO — it comes from the URL route and is set manually: `product.Id = id` |
+| Mapping                         | Direction     | Used when     | Notes                                                                                   |
+| ------------------------------- | ------------- | ------------- | --------------------------------------------------------------------------------------- |
+| `Product → ProductDto`       | Entity to DTO | GET responses | Includes`Id`; safe to expose                                                          |
+| `ProductCreateDto → Product` | DTO to Entity | POST (Create) | No`Id` in DTO — SQL Server assigns it via IDENTITY                                   |
+| `ProductUpdateDto → Product` | DTO to Entity | PUT (Update)  | No`Id` in DTO — it comes from the URL route and is set manually: `product.Id = id` |
 
 **Why the DTO→Entity mapping matters for security:** If you skipped DTOs and let the controller directly accept a `Product` entity in the POST body, a user could send `{"id": 9999, "name": "hijacked"}` and potentially overwrite a different record or create confusion. The DTO has no `Id` field, so that attack vector is closed at the type level.
 
@@ -447,13 +467,13 @@ The `[ApiController]` attribute makes this check automatic and invisible. If the
 
 Every action returns `Task<IActionResult>`. This is an interface that any "HTTP result" can implement. The helper methods on `ControllerBase` return concrete implementations:
 
-| Helper method | HTTP Status | When used |
-|---|---|---|
-| `Ok(data)` | 200 | Successful GET — returns data |
-| `CreatedAtAction(...)` | 201 | Successful POST — also sets `Location` header to the new resource URL |
-| `NoContent()` | 204 | Successful PUT/DELETE — operation succeeded, no body needed |
-| `NotFound(obj)` | 404 | Resource with given ID does not exist |
-| `BadRequest(obj)` | 400 | Client sent invalid data |
+| Helper method            | HTTP Status | When used                                                               |
+| ------------------------ | ----------- | ----------------------------------------------------------------------- |
+| `Ok(data)`             | 200         | Successful GET — returns data                                          |
+| `CreatedAtAction(...)` | 201         | Successful POST — also sets`Location` header to the new resource URL |
+| `NoContent()`          | 204         | Successful PUT/DELETE — operation succeeded, no body needed            |
+| `NotFound(obj)`        | 404         | Resource with given ID does not exist                                   |
+| `BadRequest(obj)`      | 400         | Client sent invalid data                                                |
 
 `CreatedAtAction(nameof(GetById), new { id = created.Id }, created)` is particularly notable: it returns the new resource in the body AND sets the `Location` response header to `https://localhost:7001/api/products/5` (pointing to where the new resource can be retrieved). This is the correct REST behavior for 201 responses.
 
@@ -503,6 +523,34 @@ ProductCatalog.Api/
 │   └── ProductService.cs           # Concrete business logic & validation
 └── Program.cs                      # Application bootstrapper & DI container
 ```
+
+**CLI Commands that created this structure:**
+
+```powershell
+# Create the solution and API project
+dotnet new sln -n ProductCatalog
+dotnet new webapi -n ProductCatalog.Api --use-controllers
+dotnet sln add ProductCatalog.Api/ProductCatalog.Api.csproj
+
+# Install required NuGet packages
+cd ProductCatalog.Api
+dotnet add package Microsoft.EntityFrameworkCore.SqlServer --version 8.0.0
+dotnet add package Microsoft.EntityFrameworkCore.Design --version 8.0.0
+dotnet add package Microsoft.EntityFrameworkCore.Tools --version 8.0.0
+dotnet add package AutoMapper --version 12.0.1
+dotnet add package Swashbuckle.AspNetCore --version 6.6.2
+
+# After writing Domain/Product.cs and Data/CatalogDbContext.cs:
+dotnet ef migrations add InitialCreate
+dotnet ef database update
+
+# Or from VS Package Manager Console (Default project = ProductCatalog.Api):
+# Add-Migration InitialCreate
+# Update-Database
+cd ..
+```
+
+> The `Controllers/`, `Data/`, `Domain/`, `DTOs/`, `Mapping/`, `Middleware/`, `Repositories/`, `Services/` folders and their `.cs` files are created manually — .NET does not scaffold these. The `Migrations/` folder is auto-generated by `dotnet ef migrations add`.
 
 #### Detailed Breakdown:
 
@@ -555,6 +603,44 @@ product-catalog-ui/
     ├── main.ts                     # Angular bootstrapping entry point
     └── styles.scss                 # Global application SCSS
 ```
+
+**CLI Commands that created this structure:**
+
+```powershell
+# Step 1: Install Angular CLI globally (one-time)
+npm install -g @angular/cli@19
+
+# Step 2: Create the Angular project (from the solution root)
+ng new product-catalog-ui --style=scss --ssr=false
+cd product-catalog-ui
+
+# Step 3: Generate the Product List component
+ng generate component features/products/product-list
+# Shorthand: ng g c features/products/product-list
+
+# Step 4: Generate the Product Form component
+ng generate component features/products/product-form
+# Shorthand: ng g c features/products/product-form
+
+# Step 5: Generate the Product HTTP service
+ng generate service core/services/product
+# Shorthand: ng g s core/services/product
+
+# Step 6: Generate the Product model interface
+ng generate interface shared/models/product model
+# Shorthand: ng g i shared/models/product model
+
+# Step 7: Generate environment configuration files
+ng generate environments
+# Creates: src/environments/environment.ts (production)
+# Creates: src/environments/environment.development.ts (dev)
+
+# Step 8: Run the dev server
+ng serve
+# App available at: http://localhost:4200
+```
+
+> **What `ng new` scaffolds automatically:** `angular.json`, `package.json`, `tsconfig.json`, `src/main.ts`, `src/index.html`, `src/styles.scss`, `src/app/app.component.ts`, `src/app/app.config.ts`, `src/app/app.routes.ts`. Everything else (`core/`, `features/`, `shared/`) is generated via `ng generate` commands above.
 
 #### Detailed Breakdown:
 
@@ -619,11 +705,11 @@ It sees a parameter of type `IProductService`, looks it up in the container, cre
 
 When you register a service, you choose its **lifetime** — how long one instance lives:
 
-| Lifetime | Method | How long it lives | Use when |
-|---|---|---|---|
-| **Transient** | `AddTransient<I, T>()` | Created fresh for every single injection request | Stateless utilities; lightweight services with no shared state |
-| **Scoped** | `AddScoped<I, T>()` | Created once per HTTP request; shared within that request | Services that hold a database transaction (`DbContext`, repositories, services) |
-| **Singleton** | `AddSingleton<I, T>()` | Created once for the entire app lifetime; shared by all requests | Thread-safe caches, configuration objects, HttpClientFactory |
+| Lifetime            | Method                   | How long it lives                                                | Use when                                                                          |
+| ------------------- | ------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| **Transient** | `AddTransient<I, T>()` | Created fresh for every single injection request                 | Stateless utilities; lightweight services with no shared state                    |
+| **Scoped**    | `AddScoped<I, T>()`    | Created once per HTTP request; shared within that request        | Services that hold a database transaction (`DbContext`, repositories, services) |
+| **Singleton** | `AddSingleton<I, T>()` | Created once for the entire app lifetime; shared by all requests | Thread-safe caches, configuration objects, HttpClientFactory                      |
 
 **Why everything in this project is `AddScoped`:**
 
@@ -867,12 +953,12 @@ When the C# compiler sees `async`, it transforms the method into a **state machi
 
 JavaScript has native `Promise<T>` (analogous to C#'s `Task<T>`). Angular's `HttpClient` returns **RxJS `Observable<T>`** instead, which is more powerful:
 
-| | `Promise<T>` | `Observable<T>` |
-|---|---|---|
-| **Emits** | A single value, once | Zero or more values over time |
-| **Cancellable?** | No (once started, it runs) | Yes — `unsubscribe()` cancels the HTTP request |
-| **Operators** | `.then()`, `.catch()` | `map()`, `filter()`, `switchMap()`, `retry()`, etc. |
-| **When to use** | One-time async operation | HTTP calls, WebSockets, event streams |
+|                        | `Promise<T>`             | `Observable<T>`                                           |
+| ---------------------- | -------------------------- | ----------------------------------------------------------- |
+| **Emits**        | A single value, once       | Zero or more values over time                               |
+| **Cancellable?** | No (once started, it runs) | Yes —`unsubscribe()` cancels the HTTP request            |
+| **Operators**    | `.then()`, `.catch()`  | `map()`, `filter()`, `switchMap()`, `retry()`, etc. |
+| **When to use**  | One-time async operation   | HTTP calls, WebSockets, event streams                       |
 
 **The cold Observable:** An `Observable` from `HttpClient.get()` is **cold** — it does nothing until `.subscribe()` is called. This is a very common beginner mistake:
 
@@ -888,7 +974,6 @@ this.productService.getAll().subscribe({
 ```
 
 **Memory leak warning:** If a component subscribes to a long-lived Observable (like a WebSocket or a route parameter stream) and never unsubscribes, the subscription keeps a reference to the component alive even after it is destroyed. For `HttpClient` calls, this is not an issue because the HTTP Observable automatically completes after one emission — but for router or store subscriptions, always unsubscribe in `ngOnDestroy()`.
-  >
 
 ### 4. Debugging Like a Pro
 
@@ -922,6 +1007,7 @@ Our tests follow the standard AAA pattern to ensure readability:
 ### Mocking Dependencies with "Moq"
 
 A unit test must be completely isolated. We must *not* hit the real SQL Server database because:
+
 - Database state can change between test runs, causing flaky results
 - Tests would depend on a running SQL Server instance (slowing CI pipelines)
 - The test would be testing EF Core and SQL Server, not our business logic
@@ -1027,16 +1113,16 @@ public class ProductServiceTests
 
 **Dissecting the test anatomy:**
 
-| Piece | Purpose |
-|---|---|
-| `[TestFixture]` | Marks the class as a test container; NUnit discovers it during `dotnet test` |
-| `[SetUp]` | Runs before *every* `[Test]`. Resets the mock and service so tests never share state |
-| `Mock<IProductRepository>()` | Creates an in-memory fake that implements `IProductRepository` |
-| `_mockRepo.Setup(...).ReturnsAsync(...)` | Configures what the fake returns when called with specific arguments |
-| `It.IsAny<int>()` | A Moq matcher: "match any integer argument" — use when the specific value doesn't matter |
-| `_mockRepo.Object` | The actual fake object that implements the interface, ready to inject |
-| `_mockRepo.Verify(...)` | Asserts that a method *was* (or was not) called — catches bugs where data is never saved |
-| `Times.Once` | The verification constraint — fails if the method was called 0 or 2+ times |
+| Piece                                      | Purpose                                                                                    |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `[TestFixture]`                          | Marks the class as a test container; NUnit discovers it during`dotnet test`              |
+| `[SetUp]`                                | Runs before*every* `[Test]`. Resets the mock and service so tests never share state    |
+| `Mock<IProductRepository>()`             | Creates an in-memory fake that implements`IProductRepository`                            |
+| `_mockRepo.Setup(...).ReturnsAsync(...)` | Configures what the fake returns when called with specific arguments                       |
+| `It.IsAny<int>()`                        | A Moq matcher: "match any integer argument" — use when the specific value doesn't matter  |
+| `_mockRepo.Object`                       | The actual fake object that implements the interface, ready to inject                      |
+| `_mockRepo.Verify(...)`                  | Asserts that a method*was* (or was not) called — catches bugs where data is never saved |
+| `Times.Once`                             | The verification constraint — fails if the method was called 0 or 2+ times                |
 
 **Why we use the real AutoMapper in tests:** AutoMapper configuration bugs (wrong property names, missing maps) are real bugs. If we mocked AutoMapper too, a misconfigured `MappingProfile` would never be caught by tests. By using the real `MapperConfiguration`, we test the full service behavior including mapping.
 
@@ -1580,6 +1666,7 @@ public class ProductCreateDto
 ```
 
 When `[ApiController]` is on the controller and a POST request arrives with `{"name": "", "price": -5}`, ASP.NET Core:
+
 1. Deserializes the JSON body into a `ProductCreateDto` object
 2. Runs all Data Annotation validators on the object
 3. Finds `Name` is empty (violates `[Required]`) and `Price` is negative (violates `[Range]`)
@@ -1638,11 +1725,13 @@ Always use `decimal` for money, currency, and any value where exact decimal repr
 Angular has two form strategies. This project uses **Reactive Forms**.
 
 **Template-driven forms** define validation rules in HTML using directives:
+
 ```html
 <input [(ngModel)]="name" required maxlength="100">
 ```
 
 **Reactive forms** define the form structure and validation in TypeScript:
+
 ```typescript
 this.productForm = this.fb.group({
   name: ['', [Validators.required, Validators.maxLength(100)]],
@@ -1650,13 +1739,13 @@ this.productForm = this.fb.group({
 });
 ```
 
-| | Template-Driven | Reactive |
-|---|---|---|
-| Form definition | HTML template | TypeScript class |
-| Validation rules | HTML attributes | TypeScript `Validators.*` |
-| Testability | Hard (needs DOM) | Easy (pure TypeScript objects) |
-| Complex forms | Gets messy | Scales well |
-| Angular module | `FormsModule` | `ReactiveFormsModule` |
+|                  | Template-Driven  | Reactive                       |
+| ---------------- | ---------------- | ------------------------------ |
+| Form definition  | HTML template    | TypeScript class               |
+| Validation rules | HTML attributes  | TypeScript`Validators.*`     |
+| Testability      | Hard (needs DOM) | Easy (pure TypeScript objects) |
+| Complex forms    | Gets messy       | Scales well                    |
+| Angular module   | `FormsModule`  | `ReactiveFormsModule`        |
 
 **Why Reactive Forms?** The form state is a first-class TypeScript object (`FormGroup`). You can inspect `form.value`, `form.valid`, `form.errors` in code. You can write unit tests that set values and check validation without rendering any HTML. For complex forms with conditional validation ("if product type is 'digital', require 'downloadUrl'"), reactive forms are the only sane approach.
 
@@ -1701,6 +1790,7 @@ Every form control has a state: `valid`/`invalid`, `touched`/`untouched` (has th
 **What `loadComponent` does:** It uses JavaScript's native dynamic `import()` to load the component's module only when the route is first visited. Angular builds each lazy-loaded component into a **separate JavaScript chunk file** (e.g., `product-list-component-abc123.js`).
 
 **The network waterfall:**
+
 1. User opens the app → browser downloads `main.js` (the app shell — small)
 2. User navigates to `/products` → browser downloads `product-list-component.js` (on demand)
 3. User navigates to `/products/new` → browser downloads `product-form-component.js` (on demand)
@@ -1805,12 +1895,12 @@ export class ProductListComponent implements OnInit {
 
 **Key lifecycle hooks:**
 
-| Hook | When | Use for |
-|---|---|---|
-| `constructor` | Component instantiated | Inject services only |
-| `ngOnInit` | After Angular sets `@Input()` bindings | Load initial data |
-| `ngOnChanges` | Every time an `@Input()` value changes | React to parent updates |
-| `ngOnDestroy` | Just before component removed | Cleanup: unsubscribe, clear timers |
+| Hook            | When                                    | Use for                            |
+| --------------- | --------------------------------------- | ---------------------------------- |
+| `constructor` | Component instantiated                  | Inject services only               |
+| `ngOnInit`    | After Angular sets`@Input()` bindings | Load initial data                  |
+| `ngOnChanges` | Every time an`@Input()` value changes | React to parent updates            |
+| `ngOnDestroy` | Just before component removed           | Cleanup: unsubscribe, clear timers |
 
 ---
 
@@ -1900,3 +1990,1013 @@ UI: Table re-renders with updated data
 ```
 
 **What happens on error?** If the product with Id 3 did not exist, `UpdateAsync()` would return `false`, the controller would return `NotFound(...)`, and Angular's `error` callback in the subscribe block would fire, setting `this.errorMessage` — which `@if (errorMessage)` in the template makes visible to the user.
+
+---
+
+## 14. CLI Command Reference — Building the Project from Scratch
+
+This section documents every CLI command used to create and configure this project, in the **exact sequence** they were executed. Use this as a step-by-step recipe to reproduce the entire stack from an empty folder.
+
+> **Prerequisites:** .NET 8 SDK, Node.js 20+, npm 10+, SQL Server (local instance with SQL Authentication user `api`).
+
+---
+
+## ── Part A: .NET Backend CLI ──────────────────────────────────────────────────
+
+### 14.1 .NET Solution & API Project Setup
+
+```powershell
+# ── Step 1: Create the solution file ──
+mkdir ProductCatalog
+cd ProductCatalog
+dotnet new sln -n ProductCatalog
+
+# ── Step 2: Create the Web API project (with controllers, not Minimal API) ──
+dotnet new webapi -n ProductCatalog.Api --use-controllers
+
+# ── Step 3: Add the project to the solution ──
+dotnet sln add ProductCatalog.Api/ProductCatalog.Api.csproj
+
+# ── Step 4: Verify the solution builds ──
+dotnet build
+```
+
+---
+
+### 14.2 NuGet Package Installation
+
+```powershell
+# All commands run from the ProductCatalog.Api directory
+cd ProductCatalog.Api
+
+# EF Core — SQL Server provider
+dotnet add package Microsoft.EntityFrameworkCore.SqlServer --version 8.0.0
+
+# EF Core — Design-time tools (required for `dotnet ef` CLI)
+dotnet add package Microsoft.EntityFrameworkCore.Design --version 8.0.0
+
+# EF Core — Migration tooling
+dotnet add package Microsoft.EntityFrameworkCore.Tools --version 8.0.0
+
+# AutoMapper — Entity ↔ DTO mapping
+dotnet add package AutoMapper --version 12.0.1
+
+# Swashbuckle — Swagger/OpenAPI documentation
+dotnet add package Swashbuckle.AspNetCore --version 6.6.2
+
+# Return to solution root
+cd ..
+```
+
+---
+
+### 14.3 EF Core Global Tool & Migrations
+
+#### Option A: Terminal / PowerShell (`dotnet ef` CLI)
+
+```powershell
+# ── Install the EF Core CLI tool (one-time global install) ──
+dotnet tool install --global dotnet-ef
+
+# ── Verify installation ──
+dotnet ef --version
+
+# ── All migration commands run from the API project directory ──
+cd ProductCatalog.Api
+
+# ── Create the initial migration (run AFTER writing Product.cs + CatalogDbContext.cs) ──
+dotnet ef migrations add InitialCreate
+# Creates: Migrations/YYYYMMDDHHMMSS_InitialCreate.cs
+# Creates: Migrations/CatalogDbContextModelSnapshot.cs
+
+# ── Apply the migration to create the database ──
+dotnet ef database update
+# Creates the ProductCatalogDb database and Products table in SQL Server
+
+# ── When you modify an entity (e.g., add a Stock property to Product.cs) ──
+dotnet ef migrations add AddStockToProduct
+# EF diffs the current model against the snapshot and generates ALTER TABLE
+
+# ── Apply the new migration ──
+dotnet ef database update
+
+# ── Useful migration management commands ──
+
+# List all migrations and their applied/pending status
+dotnet ef migrations list
+
+# Remove the LAST migration (only if NOT yet applied to the database)
+dotnet ef migrations remove
+
+# Revert the database to a specific migration
+dotnet ef database update <TargetMigrationName>
+
+# Revert ALL migrations (reset database to empty)
+dotnet ef database update 0
+
+# Generate a SQL script (for production — never use auto-migrate in prod)
+dotnet ef migrations script
+
+# Generate SQL script between two specific migrations
+dotnet ef migrations script InitialCreate AddStockToProduct
+
+# Generate idempotent script (safe to run multiple times)
+dotnet ef migrations script --idempotent
+
+# Drop the database entirely (CAUTION: destroys all data)
+dotnet ef database drop --force
+
+cd ..
+```
+
+#### Option B: Visual Studio — Package Manager Console (PMC)
+
+If you prefer to stay inside Visual Studio instead of opening a separate terminal:
+
+1. **Open PMC:** Menu → **Tools** → **NuGet Package Manager** → **Package Manager Console**
+2. **Set the Default project** dropdown (at the top of the PMC panel) to **`ProductCatalog.Api`**
+3. Run the PMC equivalents:
+
+```powershell
+# ── Create the initial migration ──
+Add-Migration InitialCreate
+
+# ── Apply migrations to the database ──
+Update-Database
+
+# ── Add a new migration after entity changes ──
+Add-Migration AddStockToProduct
+
+# ── Apply the new migration ──
+Update-Database
+
+# ── List all migrations ──
+Get-Migration
+
+# ── Remove the last unapplied migration ──
+Remove-Migration
+
+# ── Revert to a specific migration ──
+Update-Database -Migration <TargetMigrationName>
+
+# ── Revert ALL migrations ──
+Update-Database -Migration 0
+
+# ── Generate a SQL script ──
+Script-Migration
+
+# ── Generate idempotent SQL script ──
+Script-Migration -Idempotent
+
+# ── Drop the database ──
+Drop-Database
+```
+
+#### CLI vs PMC — Quick Reference Table
+
+| Action | Terminal (`dotnet ef`) | VS Package Manager Console |
+|---|---|---|
+| Create migration | `dotnet ef migrations add <Name>` | `Add-Migration <Name>` |
+| Apply migrations | `dotnet ef database update` | `Update-Database` |
+| List migrations | `dotnet ef migrations list` | `Get-Migration` |
+| Remove last migration | `dotnet ef migrations remove` | `Remove-Migration` |
+| Revert to migration | `dotnet ef database update <Name>` | `Update-Database -Migration <Name>` |
+| Generate SQL script | `dotnet ef migrations script` | `Script-Migration` |
+| Idempotent script | `dotnet ef migrations script --idempotent` | `Script-Migration -Idempotent` |
+| Drop database | `dotnet ef database drop --force` | `Drop-Database` |
+
+> **Which to choose?** Both produce identical results. Use **PMC** if you work primarily in Visual Studio and want integrated output in the IDE. Use **`dotnet ef` CLI** if you prefer terminals, VS Code, or need to script migrations in CI/CD pipelines.
+
+> **Note:** In this project, `Program.cs` calls `db.Database.Migrate()` on startup, so `dotnet ef database update` is not strictly needed during development — the app auto-applies pending migrations on boot. However, the CLI commands above are essential for production workflows where you generate SQL scripts instead of auto-migrating.
+
+---
+
+### 14.4 .NET Test Project Setup
+
+```powershell
+# ── Step 1: Create the NUnit test project ──
+dotnet new nunit -n ProductCatalog.Api.Tests
+
+# ── Step 2: Add the test project to the solution ──
+dotnet sln add ProductCatalog.Api.Tests/ProductCatalog.Api.Tests.csproj
+
+# ── Step 3: Add a project reference to the API (so tests can access API classes) ──
+cd ProductCatalog.Api.Tests
+dotnet add reference ../ProductCatalog.Api/ProductCatalog.Api.csproj
+
+# ── Step 4: Install test-specific NuGet packages ──
+dotnet add package Moq --version 4.20.72
+dotnet add package AutoMapper --version 12.0.1
+
+cd ..
+```
+
+---
+
+### 14.5 Running & Testing the .NET Backend
+
+```powershell
+# ── Run the API (from solution root or API directory) ──
+cd ProductCatalog.Api
+dotnet run
+# API starts at: https://localhost:7001 and http://localhost:5190
+# Swagger UI at: https://localhost:7001/swagger
+
+# ── Run with hot reload (auto-restart on file save) ──
+dotnet watch run
+
+# ── Run all tests (from solution root) ──
+cd ..
+dotnet test
+
+# ── Run tests with verbose output (see individual test names) ──
+dotnet test --logger "console;verbosity=detailed"
+
+# ── Run tests with code coverage ──
+dotnet test --collect:"XPlat Code Coverage"
+# Output: TestResults/*/coverage.cobertura.xml
+
+# ── Build without running ──
+dotnet build
+
+# ── Restore NuGet packages (usually automatic) ──
+dotnet restore
+
+# ── Clean build artifacts ──
+dotnet clean
+```
+
+---
+
+## ── Part B: Angular Frontend CLI ─────────────────────────────────────────────
+
+### 14.6 Angular Frontend Project Setup
+
+```powershell
+# ── Step 1: Install Angular CLI globally ──
+npm install -g @angular/cli@19
+
+# ── Step 2: Verify installation ──
+ng version
+
+# ── Step 3: Create the Angular project ──
+# --style=scss      → Use SCSS for styling
+# --ssr=false        → Disable Server-Side Rendering (not needed for this SPA)
+# Routing is included by default in Angular 19
+ng new product-catalog-ui --style=scss --ssr=false
+
+cd product-catalog-ui
+```
+
+---
+
+### 14.7 Angular Component & Service Generation
+
+```powershell
+# All commands run from the product-catalog-ui directory
+
+# ── Generate the Product List component ──
+ng generate component features/products/product-list
+# Creates:
+#   src/app/features/products/product-list/product-list.component.ts
+#   src/app/features/products/product-list/product-list.component.html
+#   src/app/features/products/product-list/product-list.component.scss
+#   src/app/features/products/product-list/product-list.component.spec.ts
+
+# ── Generate the Product Form component ──
+ng generate component features/products/product-form
+
+# ── Generate the Product Service (singleton) ──
+ng generate service core/services/product
+# Creates: src/app/core/services/product.service.ts (with @Injectable({ providedIn: 'root' }))
+
+# ── Generate the Product model interface ──
+ng generate interface shared/models/product model
+# Creates: src/app/shared/models/product.model.ts
+
+# ── Generate environment files ──
+ng generate environments
+# Creates:
+#   src/environments/environment.ts           (production)
+#   src/environments/environment.development.ts (development)
+
+# ── Shorthand aliases (equivalent commands) ──
+ng g c features/products/product-list    # g = generate, c = component
+ng g s core/services/product             # s = service
+ng g i shared/models/product model       # i = interface
+```
+
+---
+
+### 14.7.1 Complete `ng generate` Schematic Reference — All Artifact Types
+
+Every artifact type the Angular CLI can scaffold, with an explanation of **what** it is, **where** to put it, **why** it exists, and **when** to use it.
+
+---
+
+#### 1. Component (`ng g c`)
+
+**What:** A component is the fundamental UI building block in Angular. It owns a piece of the screen: a TypeScript class (logic), an HTML template (structure), and a SCSS file (styles). Angular renders components into the browser DOM.
+
+**Where:** Place feature-specific components inside `features/<domain>/` (e.g., `features/products/product-list`). Place reusable/dumb UI components in `shared/ui/` (e.g., `shared/ui/spinner`).
+
+**Why:** Every visible piece of UI — a page, a form, a card, a button group — should be its own component. Components are isolated, testable units that Angular can lazy-load on demand.
+
+**When to use:**
+- Every new page or route target → `ng g c features/<domain>/<page-name>`
+- Every reusable UI widget (card, modal, table row) → `ng g c shared/ui/<widget-name>`
+- Any time you find yourself copying HTML between templates → extract into a component
+
+```powershell
+# Standard feature component (creates a subfolder automatically)
+ng generate component features/products/product-card
+ng g c features/products/product-card              # shorthand
+
+# Reusable UI widget with inline template (no separate .html, good for tiny components)
+ng generate component shared/ui/spinner --inline-template --inline-style --flat
+
+# Skip the auto-generated test file (use when prototyping, remove --skip-tests in production)
+ng generate component features/orders/order-list --skip-tests
+
+# OnPush change detection — only re-renders when @Input() references change
+# Use for display/presentational components that receive data via @Input()
+ng generate component features/products/product-card --change-detection OnPush
+
+# Legacy NgModule-based project (pre-Angular 17)
+ng generate component features/orders/order-list --no-standalone
+```
+
+---
+
+#### 2. Service (`ng g s`)
+
+**What:** A service is a TypeScript class decorated with `@Injectable`. It holds shared business logic, HTTP calls, and state that needs to be shared between components. Unlike components, services have no template — they are pure logic.
+
+**Where:** Singleton services that are used app-wide belong in `core/services/`. Services scoped to a single feature can live in `features/<domain>/services/`.
+
+**Why:** Components should be thin — they should only coordinate the view. All API calls, data transformation, and cross-component state belong in services. This enforces the Single Responsibility Principle and makes logic independently testable.
+
+**When to use:**
+- Any HTTP API call → always put it in a service, never directly in a component
+- Shared state (e.g., shopping cart, currently logged-in user) → service
+- Business logic reused by multiple components → service
+
+```powershell
+# App-wide singleton service (providedIn: 'root' — Angular creates ONE instance for the whole app)
+ng generate service core/services/product
+ng g s core/services/product                       # shorthand
+
+# Auth service (token storage, login/logout logic)
+ng generate service core/services/auth
+
+# Logger utility (wraps console.log for prod vs dev environments)
+ng generate service core/services/logger --skip-tests
+
+# Scoped service — NOT a singleton, must be provided manually in a component or module
+ng generate service features/cart/cart --no-provided-in-root
+```
+
+---
+
+#### 3. Interface (`ng g i`)
+
+**What:** A TypeScript `interface` is a compile-time contract describing the shape of an object. It generates zero JavaScript — it disappears after compilation. It exists only to give the TypeScript compiler information about what properties an object has.
+
+**Where:** Always in `shared/models/`. These mirror the C# DTOs on the backend exactly.
+
+**Why:** Without interfaces, TypeScript treats everything as `any`, losing all type safety. With interfaces, if the API response changes and you forget to update the frontend, TypeScript will immediately show a compile error. Interfaces are the contract between the backend API and the Angular app.
+
+**When to use:**
+- Every time the API returns a JSON object → create a matching interface
+- When defining the shape of data passed between components via `@Input()`
+- When defining the body of a POST/PUT request
+
+```powershell
+# Model interface — the second argument is the type suffix ('model' → product.model.ts)
+ng generate interface shared/models/product model
+ng g i shared/models/product model                 # shorthand
+# Creates: src/app/shared/models/product.model.ts
+
+# DTO interfaces for create/update payloads
+ng generate interface shared/models/product-create model
+ng generate interface shared/models/product-update model
+
+# API response wrappers
+ng generate interface shared/models/api-response model
+```
+
+---
+
+#### 4. Class (`ng g cl`)
+
+**What:** A plain TypeScript class — no Angular decorators, no DI, no template. Just a class.
+
+**Where:** `shared/utils/` for utility helpers, `shared/models/` when a model needs methods (not just a data shape).
+
+**Why:** Use a class instead of an interface when your type needs **methods**, **constructor logic**, or **default values**. Use an interface when it is purely a data shape.
+
+**When to use:**
+- Utility helpers with static methods (e.g., `DateFormatter`, `StringUtils`)
+- Value objects that need validation in their constructor
+- Do NOT use for API data shapes — use `interface` for those
+
+```powershell
+ng generate class shared/utils/date-formatter
+ng g cl shared/utils/date-formatter                # shorthand
+# Creates: src/app/shared/utils/date-formatter.ts
+```
+
+---
+
+#### 5. Enum (`ng g e`)
+
+**What:** A TypeScript `enum` is a set of named constants. Unlike `interface`, enums DO compile to JavaScript — they become a plain object at runtime.
+
+**Where:** `shared/enums/` — shared across the entire application.
+
+**Why:** Enums replace magic strings and magic numbers. Instead of `if (status === 'active')` scattered across the code, you write `if (status === ProductStatus.Active)`. If the string ever changes, you fix it in one place.
+
+**When to use:**
+- Status fields (Active, Inactive, Pending, Archived)
+- Role types (Admin, User, Moderator)
+- Any fixed set of values that maps to strings or numbers
+
+```powershell
+ng generate enum shared/enums/product-status
+ng g e shared/enums/product-status                 # shorthand
+# Creates: src/app/shared/enums/product-status.ts
+
+ng generate enum shared/enums/user-role
+```
+
+---
+
+#### 6. Pipe (`ng g p`)
+
+**What:** A pipe transforms data for display inside a template without mutating the source data. Angular has built-in pipes (`date`, `currency`, `uppercase`, `json`). Custom pipes let you add your own transformations.
+
+**Where:** `shared/pipes/` — pipes are almost always reusable across the app.
+
+**Why:** Pipes keep transformation logic out of components and templates. Instead of computing a truncated string in every component, you write `{{ description | truncate:100 }}` and the pipe handles it everywhere consistently.
+
+**When to use:**
+- Formatting text for display (truncate, highlight search term, slugify)
+- Formatting numbers (custom currency, percentage)
+- Filtering or sorting arrays in templates (use with caution — prefer computed properties for performance)
+- Any data transformation that is purely presentational (does not change the source data)
+
+```powershell
+ng generate pipe shared/pipes/truncate
+ng g p shared/pipes/truncate                       # shorthand
+# Creates: src/app/shared/pipes/truncate.pipe.ts
+# Usage: {{ product.description | truncate:80 }}
+
+ng generate pipe shared/pipes/highlight            # highlight search term
+ng generate pipe shared/pipes/time-ago             # "3 minutes ago" relative time
+```
+
+---
+
+#### 7. Directive (`ng g d`)
+
+**What:** A directive adds behavior to an existing DOM element or changes the DOM structure. There are two types:
+- **Attribute directive** — modifies appearance or behavior of an element (`[appHighlight]`, `[appTooltip]`)
+- **Structural directive** — adds/removes DOM elements (`*appHasRole`, `*appFeatureFlag`)
+
+**Where:** `shared/directives/` — directives are reused across features.
+
+**Why:** Directives let you extend HTML with custom behavior that is not tied to any specific component. Instead of copy-pasting focus/blur logic into every input component, a single directive handles it.
+
+**When to use:**
+- Attribute directives: auto-focus inputs, click-outside detection, drag handles, permission-based styling
+- Structural directives: show/hide DOM blocks based on user role, feature flags, loading state
+- Do NOT use a directive when a component (with its own template) would be clearer
+
+```powershell
+ng generate directive shared/directives/highlight
+ng g d shared/directives/highlight                 # shorthand
+# Creates: src/app/shared/directives/highlight.directive.ts
+# Usage: <p appHighlight [highlightColor]="'yellow'">Text</p>
+
+ng generate directive shared/directives/click-outside
+ng generate directive shared/directives/has-role   # structural — hides elements by role
+```
+
+---
+
+#### 8. Guard (`ng g g`)
+
+**What:** A guard is a function (or class) that Angular's Router calls before activating a route. It returns `true` (allow navigation) or `false` / a `UrlTree` (redirect). Common types: `CanActivate` (protect routes), `CanDeactivate` (warn before leaving a dirty form).
+
+**Where:** `core/guards/` — guards are global navigation logic, not feature-specific.
+
+**Why:** Without guards, any user can navigate to `/admin` or `/account/settings` just by typing the URL. Guards enforce authentication and authorization at the routing layer before any component loads.
+
+**When to use:**
+- `CanActivate` — protect routes that require login: `/dashboard`, `/profile`, `/admin`
+- `CanDeactivate` — warn user when leaving a form with unsaved changes
+- `CanMatch` — load different route configs based on roles (admin vs user)
+- Always use guards instead of putting auth checks inside `ngOnInit()` of components
+
+```powershell
+# Auth guard — redirect to /login if user is not authenticated
+ng generate guard core/guards/auth
+ng g g core/guards/auth                            # shorthand
+
+# Functional guard (Angular 15+ preferred style — no class boilerplate)
+ng generate guard core/guards/auth --functional
+
+# Role guard — only admins can access certain routes
+ng generate guard core/guards/admin --functional
+
+# Unsaved changes guard — warns before leaving dirty form
+ng generate guard core/guards/unsaved-changes --functional
+```
+
+---
+
+#### 9. Interceptor (`ng g interceptor`)
+
+**What:** An HTTP interceptor is middleware that sits between Angular's `HttpClient` and the actual HTTP request/response. It can inspect, modify, or react to every HTTP call in the app without touching individual service methods.
+
+**Where:** `core/interceptors/` — interceptors are app-wide infrastructure, not feature logic.
+
+**Why:** Without interceptors, you would need to manually add `Authorization: Bearer <token>` headers in every single `HttpClient` call. The interceptor does it in ONE place for every request automatically. Same for global error handling, loading spinners, and request logging.
+
+**When to use:**
+- **auth-token** — inject JWT `Authorization` header on every outgoing request
+- **error-handler** — catch 401/403/500 responses globally, show toast notifications, redirect to login on 401
+- **loading** — show/hide a global loading spinner on every HTTP request
+- **cache** — cache GET responses to avoid redundant API calls
+- **logging** — log every request and response URL + timing in development
+
+```powershell
+# JWT token injection — adds Authorization header to every request
+ng generate interceptor core/interceptors/auth-token
+# Creates: src/app/core/interceptors/auth-token.interceptor.ts
+
+# Global error handler — catches HTTP errors, shows user-friendly messages
+ng generate interceptor core/interceptors/error-handler
+
+# Loading spinner — triggers a loading state on every request start/complete
+ng generate interceptor core/interceptors/loading
+```
+
+---
+
+#### 10. Resolver (`ng g r`)
+
+**What:** A resolver pre-fetches data **before** the route is activated and its component is rendered. The route does not activate until the resolver's Observable completes. The resolved data is injected into the component via `ActivatedRoute`.
+
+**Where:** `core/resolvers/` for app-wide resolvers, or `features/<domain>/resolvers/` for domain-specific ones.
+
+**Why:** Without a resolver, the component renders first with no data, then shows a loading spinner while the HTTP call completes, and only then renders the real content — causing a flash of empty content. A resolver ensures the component always receives its data ready on first render.
+
+**When to use:**
+- Detail pages that require data before rendering (`/products/:id` — load the product first)
+- Any page where showing empty content before data arrives is unacceptable
+- Do NOT use for lists/dashboards where showing a skeleton loader while data loads is acceptable UX
+
+```powershell
+# Resolve a single product before the detail/edit page renders
+ng generate resolver core/resolvers/product-detail
+ng g r core/resolvers/product-detail               # shorthand
+# Creates: src/app/core/resolvers/product-detail.resolver.ts
+
+# Route config usage:
+# { path: 'products/:id', component: ProductDetailComponent,
+#   resolve: { product: ProductDetailResolver } }
+# Component: this.product = this.route.snapshot.data['product'];
+```
+
+---
+
+#### 11. Module (`ng g m`) — Legacy NgModule
+
+**What:** An `NgModule` is a class that groups components, pipes, and directives and controls what is exported for other modules to use. In Angular 17+ with standalone components, modules are largely unnecessary — but still required when working with legacy codebases.
+
+**Where:** Feature modules in `features/<domain>/`. Shared module in `shared/`.
+
+**Why:** Modules existed to solve the "what does this component need?" problem before standalone components. Today, standalone components declare their own imports directly, making modules redundant for new development.
+
+**When to use:**
+- Maintaining or extending an Angular 2–16 legacy codebase that still uses NgModule
+- Integrating third-party libraries that export an NgModule (e.g., `MatTableModule`)
+- Do NOT use for new projects — standalone components are the current Angular standard
+
+```powershell
+# Feature module with its own routing file
+ng generate module features/orders --routing
+ng g m features/orders --routing                   # shorthand
+
+# Shared module — exports common components/pipes/directives to other modules
+ng generate module shared
+```
+
+---
+
+#### 12. Environments (`ng g environments`)
+
+**What:** Generates `environment.ts` (production) and `environment.development.ts` (development) files. Angular's build system automatically swaps the correct file based on `--configuration`.
+
+**Where:** `src/environments/` — this is the fixed path Angular expects.
+
+**Why:** You need different API URLs in development (`https://localhost:7001/api`) vs production (`/api` via reverse proxy). Environment files let you define these once and reference them everywhere via `environment.apiUrl` — no hardcoded strings scattered across services.
+
+**When to use:**
+- Only once, when setting up a new Angular project (`ng new` does NOT generate these by default in Angular 17+)
+- Whenever you need environment-specific configuration: API URLs, feature flags, analytics keys
+
+```powershell
+# Generates both environment files in one command
+ng generate environments
+# Creates: src/environments/environment.ts           → production
+# Creates: src/environments/environment.development.ts → development
+```
+
+---
+
+#### 13. `ng add` — Third-Party Integration
+
+**What:** `ng add` is a special CLI command that installs an npm package AND runs its Angular schematic to automatically wire it into `angular.json`, `app.config.ts`, and other config files. It is smarter than bare `npm install`.
+
+**Why:** A plain `npm install @angular/material` only downloads the files. `ng add @angular/material` downloads AND configures themes, imports `BrowserAnimationsModule`, and updates `angular.json` — saving significant manual setup.
+
+**When to use:** Always prefer `ng add` over `npm install` for Angular-aware packages. Use `npm install` for plain JS libraries (lodash, date-fns, etc.).
+
+```powershell
+# Angular Material UI component library (themes, animations, accessibility)
+ng add @angular/material
+
+# Progressive Web App (PWA) — offline support, installable on mobile
+ng add @angular/pwa
+
+# Server-Side Rendering (SSR) — for SEO and initial page load performance
+ng add @angular/ssr
+
+# NgRx — Redux-style state management for large/complex apps
+ng add @ngrx/store        # core state store
+ng add @ngrx/effects      # side effects (HTTP calls triggered by actions)
+ng add @ngrx/entity       # normalized entity state (collections/maps)
+ng add @ngrx/store-devtools  # Redux DevTools browser extension support
+```
+
+---
+
+#### `ng generate` Quick-Reference Table
+
+| Schematic     | Alias | Folder Convention         | What it creates                                              | Use when...                                   |
+|---------------|-------|---------------------------|--------------------------------------------------------------|-----------------------------------------------|
+| `component`   | `c`   | `features/` or `shared/ui/` | `.ts` + `.html` + `.scss` + `.spec.ts`                     | Any piece of UI needs its own file            |
+| `service`     | `s`   | `core/services/`          | `.service.ts` + `.service.spec.ts`                          | Shared logic, HTTP calls, state               |
+| `interface`   | `i`   | `shared/models/`          | `.model.ts` (type only, no JS output)                       | Typing API responses and @Input() shapes      |
+| `class`       | `cl`  | `shared/utils/`           | `.ts` + `.spec.ts`                                          | Utility helpers that need methods             |
+| `enum`        | `e`   | `shared/enums/`           | `.ts` (compiles to JS object)                               | Fixed sets of named constants                 |
+| `pipe`        | `p`   | `shared/pipes/`           | `.pipe.ts` + `.pipe.spec.ts`                                | Formatting data in templates                  |
+| `directive`   | `d`   | `shared/directives/`      | `.directive.ts` + `.directive.spec.ts`                      | Adding behavior to DOM elements               |
+| `guard`       | `g`   | `core/guards/`            | `.guard.ts` + `.guard.spec.ts`                              | Protecting routes from unauthorized access    |
+| `interceptor` | —     | `core/interceptors/`      | `.interceptor.ts` + `.interceptor.spec.ts`                  | Global HTTP middleware (auth, logging, errors)|
+| `resolver`    | `r`   | `core/resolvers/`         | `.resolver.ts` + `.resolver.spec.ts`                        | Pre-fetching data before route activates      |
+| `module`      | `m`   | `features/<domain>/`      | `.module.ts` + optional `-routing.module.ts`                | Legacy NgModule projects only                 |
+| `environments`| —     | `src/environments/`       | `environment.ts` + `environment.development.ts`             | Environment-specific config (URLs, flags)     |
+
+#### Common Flags for All Schematics
+
+```powershell
+--dry-run          # Preview what would be created WITHOUT writing any files (safe to run first)
+--skip-tests       # Do not create the .spec.ts test file
+--flat             # Do not create a containing subfolder (file goes directly in the target dir)
+--inline-template  # Embed the HTML template as a string in the .ts file (no separate .html)
+--inline-style     # Embed the styles in the .ts file (no separate .scss)
+--standalone       # (default in Angular 17+) Component declares its own imports, no NgModule
+--no-standalone    # Generate NgModule-style component (legacy pre-Angular 17 projects)
+--prefix <prefix>  # Override the component selector prefix (default: 'app' → app-product-list)
+--change-detection Default|OnPush   # OnPush = only re-render when @Input() references change
+--functional       # Guards/interceptors as plain functions instead of classes (Angular 15+)
+```
+
+```powershell
+# Always dry-run first to preview what will be created
+ng g c features/products/product-card --dry-run
+
+# Full example: tiny presentational component, no test, all inline
+ng g c shared/ui/loading-spinner --inline-template --inline-style --skip-tests --flat
+```
+
+#### Components
+
+```powershell
+# Basic component (inline template, no separate HTML file)
+ng generate component shared/ui/spinner --inline-template
+
+# Component with NO test spec file
+ng generate component features/orders/order-list --skip-tests
+
+# Component that is NOT standalone (legacy NgModule style)
+ng generate component features/orders/order-list --no-standalone
+
+# Component with a flat folder (files NOT nested in a subfolder)
+ng generate component shared/ui/badge --flat
+
+# Component using OnPush change detection strategy
+ng generate component features/products/product-card --change-detection OnPush
+
+# Shorthand
+ng g c features/products/product-card                  # c = component
+```
+
+#### Services
+
+```powershell
+# Singleton service (provided in root — available everywhere)
+ng generate service core/services/auth
+
+# Non-singleton service (not provided in root — must be provided in a module/component)
+ng generate service core/services/local-cart --no-provided-in-root
+
+# Service with NO test spec
+ng generate service core/services/logger --skip-tests
+
+# Shorthand
+ng g s core/services/auth                              # s = service
+```
+
+#### Interfaces, Classes & Enums
+
+```powershell
+# TypeScript interface (data shape / DTO mirror)
+ng generate interface shared/models/order model
+ng g i shared/models/category model                    # i = interface
+
+# TypeScript class (for logic-bearing objects)
+ng generate class shared/utils/date-formatter
+ng g cl shared/utils/date-formatter                    # cl = class
+
+# TypeScript enum
+ng generate enum shared/enums/product-status
+ng g e shared/enums/product-status                     # e = enum
+```
+
+#### Pipes
+
+```powershell
+# Transform data in templates (e.g., currency formatting, date display)
+ng generate pipe shared/pipes/truncate
+# Creates: src/app/shared/pipes/truncate.pipe.ts
+# Usage in template: {{ longText | truncate:50 }}
+
+ng g p shared/pipes/currency-format                    # p = pipe
+```
+
+#### Directives
+
+```powershell
+# Attribute directive (adds behavior to an existing element)
+ng generate directive shared/directives/highlight
+# Creates: src/app/shared/directives/highlight.directive.ts
+# Usage in template: <div appHighlight>...</div>
+
+# Structural directive (changes DOM structure like *ngIf / *ngFor)
+ng generate directive shared/directives/has-role
+
+ng g d shared/directives/highlight                     # d = directive
+```
+
+#### Guards
+
+```powershell
+# Route guard — controls navigation (e.g., protect authenticated routes)
+ng generate guard core/guards/auth
+# Prompts: Which type? → CanActivate, CanActivateChild, CanDeactivate, CanMatch, CanLoad
+# For modern functional guards (Angular 15+), select CanActivate
+
+# Guard (functional style — no class, just a function)
+ng generate guard core/guards/admin --functional
+
+ng g g core/guards/auth                                # g = guard
+```
+
+#### Interceptors
+
+```powershell
+# HTTP interceptor — middleware for every HTTP request/response
+ng generate interceptor core/interceptors/auth-token
+# Creates: src/app/core/interceptors/auth-token.interceptor.ts
+# Typical use: inject JWT token into every outgoing request Authorization header
+
+ng generate interceptor core/interceptors/error-handler
+# Typical use: catch HTTP errors globally, show toasts
+
+ng g interceptor core/interceptors/loading             # add spinner on every request
+```
+
+#### Resolvers
+
+```powershell
+# Resolver — pre-fetches data BEFORE the route is activated
+ng generate resolver core/resolvers/product-detail
+# Creates: src/app/core/resolvers/product-detail.resolver.ts
+# Use in route config:
+#   resolve: { product: ProductDetailResolver }
+# Component receives: this.route.snapshot.data['product']
+
+ng g r core/resolvers/product-detail                   # r = resolver
+```
+
+#### Modules (Legacy — for NgModule-based projects)
+
+```powershell
+# Feature module (with its own routing)
+ng generate module features/orders --routing
+
+# Shared module (exports reusable components/pipes/directives)
+ng generate module shared
+
+ng g m features/orders --routing                       # m = module
+```
+
+#### Application Configuration & Other Schematics
+
+```powershell
+# ── Generate a new route configuration ──
+ng generate app-shell
+
+# ── Add a new Angular library (inside an Nx or Angular workspace) ──
+ng generate library ui-components
+
+# ── Add an application (multi-app workspace) ──
+ng generate application admin-portal
+
+# ── Add Angular Material to the project ──
+ng add @angular/material
+
+# ── Add PWA support ──
+ng add @angular/pwa
+
+# ── Add Angular SSR (Server-Side Rendering) ──
+ng add @angular/ssr
+
+# ── Add NgRx state management ──
+ng add @ngrx/store
+ng add @ngrx/effects
+ng add @ngrx/entity
+ng add @ngrx/devtools
+```
+
+#### `ng generate` Quick-Reference Table
+
+| Schematic     | Alias | Command Example                                     | Output File(s)                                  |
+|---------------|-------|-----------------------------------------------------|-------------------------------------------------|
+| `component`   | `c`   | `ng g c features/orders/order-list`                 | `.component.ts`, `.html`, `.scss`, `.spec.ts`   |
+| `service`     | `s`   | `ng g s core/services/order`                        | `.service.ts`, `.service.spec.ts`               |
+| `interface`   | `i`   | `ng g i shared/models/order model`                  | `.model.ts`                                     |
+| `class`       | `cl`  | `ng g cl shared/utils/formatter`                    | `.ts`, `.spec.ts`                               |
+| `enum`        | `e`   | `ng g e shared/enums/status`                        | `.ts`                                           |
+| `pipe`        | `p`   | `ng g p shared/pipes/truncate`                      | `.pipe.ts`, `.pipe.spec.ts`                     |
+| `directive`   | `d`   | `ng g d shared/directives/highlight`                | `.directive.ts`, `.directive.spec.ts`           |
+| `guard`       | `g`   | `ng g g core/guards/auth`                           | `.guard.ts`, `.guard.spec.ts`                   |
+| `interceptor` | —     | `ng g interceptor core/interceptors/auth-token`     | `.interceptor.ts`, `.interceptor.spec.ts`       |
+| `resolver`    | `r`   | `ng g r core/resolvers/product-detail`              | `.resolver.ts`, `.resolver.spec.ts`             |
+| `module`      | `m`   | `ng g m features/orders --routing`                  | `.module.ts`, `-routing.module.ts`              |
+| `environments`| —     | `ng g environments`                                 | `environment.ts`, `environment.development.ts`  |
+
+#### Common Flags for All Schematics
+
+```powershell
+--dry-run          # Preview what would be created WITHOUT creating files
+--skip-tests       # Do not create the .spec.ts test file
+--flat             # Do not create a containing subfolder
+--inline-template  # Put the HTML template inline in the .ts file (no separate .html)
+--inline-style     # Put the CSS inline in the .ts file (no separate .scss)
+--standalone       # (default in Angular 17+) Generate standalone component (no NgModule)
+--no-standalone    # Generate NgModule-style component (legacy)
+--prefix <prefix>  # Override component selector prefix (default: 'app')
+--change-detection Default|OnPush   # Component change detection strategy
+```
+
+```powershell
+# Example: preview without creating (dry run)
+ng g c features/products/product-card --dry-run
+
+# Example: generate a component with all inlines and no test
+ng g c shared/ui/loading-spinner --inline-template --inline-style --skip-tests --flat
+```
+
+---
+
+### 14.8 Running & Building the Angular Frontend
+
+```powershell
+# ── Serve the app (dev server with hot reload on port 4200) ──
+ng serve
+# or equivalently:
+npm start
+# App at: http://localhost:4200
+
+# ── Serve on a specific port ──
+ng serve --port 4300
+
+# ── Serve and auto-open browser ──
+ng serve --open
+
+# ── Build for production ──
+ng build
+# Output: dist/product-catalog-ui/
+
+# ── Build with specific configuration ──
+ng build --configuration production
+
+# ── Run unit tests (Karma + Jasmine) ──
+ng test
+# or:
+npm test
+
+# ── Run tests in headless mode (CI) ──
+ng test --no-watch --browsers=ChromeHeadless
+
+# ── Lint the project ──
+ng lint
+
+# ── Analyze bundle size ──
+ng build --stats-json
+# Then use webpack-bundle-analyzer on the generated stats.json
+```
+
+---
+
+### 14.9 Angular Dependency Management
+
+```powershell
+# ── Install all dependencies (first time or after git clone) ──
+cd product-catalog-ui
+npm install
+
+# ── Update Angular to latest minor version ──
+ng update @angular/core @angular/cli
+
+# ── Check for outdated packages ──
+npm outdated
+
+# ── Add a new npm package ──
+npm install <package-name>
+
+# ── Add a dev-only package ──
+npm install --save-dev <package-name>
+```
+
+---
+
+### 14.10 Full-Stack Development Workflow (Day-to-Day)
+
+```powershell
+# From the repository root: ProductCatalog/
+
+# ══════════════════════════════════════════════════════════
+# Option A: One-click startup (Windows)
+# ══════════════════════════════════════════════════════════
+.\run-app.bat
+# Kills orphaned processes on ports 5190/7001/4200, then starts both API and UI
+
+# ══════════════════════════════════════════════════════════
+# Option B: Manual startup (two terminals)
+# ══════════════════════════════════════════════════════════
+
+# Terminal 1 — .NET API (with hot reload)
+cd ProductCatalog.Api
+dotnet watch run
+
+# Terminal 2 — Angular UI (with hot reload)
+cd product-catalog-ui
+ng serve
+
+# ══════════════════════════════════════════════════════════
+# After modifying a C# entity (e.g., adding a new property)
+# ══════════════════════════════════════════════════════════
+cd ProductCatalog.Api
+dotnet ef migrations add <DescriptiveMigrationName>
+# Auto-migrate in Program.cs handles `database update` on next startup
+# Or apply manually: dotnet ef database update
+
+# ══════════════════════════════════════════════════════════
+# After modifying an Angular component
+# ══════════════════════════════════════════════════════════
+# ng serve hot-reloads automatically — just save the file
+
+# ══════════════════════════════════════════════════════════
+# Run all tests before committing
+# ══════════════════════════════════════════════════════════
+dotnet test                           # .NET backend tests
+cd product-catalog-ui && ng test --no-watch --browsers=ChromeHeadless  # Angular tests
+
+# ══════════════════════════════════════════════════════════
+# Connection String Configuration
+# ══════════════════════════════════════════════════════════
+# The connection string in appsettings.json uses SQL Server Authentication:
+#   Data Source=.;Database=ProductCatalogDb;User ID=api;Password=...
+#
+# For security, store the password using .NET User Secrets (dev only):
+cd ProductCatalog.Api
+dotnet user-secrets init
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Data Source=.;Database=ProductCatalogDb;User ID=api;Password=YOUR_ACTUAL_PASSWORD;Encrypt=True;Trust Server Certificate=True;Multiple Active Result Sets=True"
+# User secrets override appsettings.json in Development environment
+```
