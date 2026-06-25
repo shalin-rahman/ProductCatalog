@@ -22,7 +22,7 @@ builder.Services.AddScoped<IProductRepository, ProductRepository>();
 builder.Services.AddScoped<IProductService, ProductService>();
 
 // AutoMapper: Scans the assembly for all Profile classes (finds MappingProfile automatically)
-builder.Services.AddAutoMapper(typeof(MappingProfile));
+builder.Services.AddAutoMapper(cfg => cfg.AddProfile<MappingProfile>());
 
 // Controllers with JSON serialization
 builder.Services.AddControllers();
