@@ -22,7 +22,7 @@ builder.Services.AddScoped<IProductRepository, ProductRepository>();
 builder.Services.AddScoped<IProductService, ProductService>();
 
 // AutoMapper: Scans the assembly for all Profile classes (finds MappingProfile automatically)
-builder.Services.AddAutoMapper(typeof(MappingProfile).Assembly);
+builder.Services.AddAutoMapper(typeof(MappingProfile));
 
 // Controllers with JSON serialization
 builder.Services.AddControllers();
@@ -74,7 +74,10 @@ if (app.Environment.IsDevelopment())
 // -----------------------------------------------------------------------
 app.UseExceptionHandler();
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 // CORS must come BEFORE UseAuthorization and MapControllers
 app.UseCors("AllowAngularDev");

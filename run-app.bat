@@ -6,18 +6,28 @@ echo ==========================================
 echo [1/3] Stopping any existing services on required ports...
 
 :: Kill processes on Angular port 4200
-FOR /F "tokens=5" %%T IN ('netstat -a -n -o ^| findstr :4200') DO (
-    IF NOT "%%T"=="0" taskkill /PID %%T /F 2>nul
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /R " :4200 "') do (
+    if not "%%a"=="0" (
+        taskkill /PID %%a /F >nul 2>&1
+    )
 )
+
 :: Kill processes on .NET HTTP port 5190
-FOR /F "tokens=5" %%T IN ('netstat -a -n -o ^| findstr :5190') DO (
-    IF NOT "%%T"=="0" taskkill /PID %%T /F 2>nul
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /R " :5190 "') do (
+    if not "%%a"=="0" (
+        taskkill /PID %%a /F >nul 2>&1
+    )
 )
-:: Kill processes on .NET HTTPS port 7001
-FOR /F "tokens=5" %%T IN ('netstat -a -n -o ^| findstr :7001') DO (
-    IF NOT "%%T"=="0" taskkill /PID %%T /F 2>nul
+
+:: Kill processes on .NET HTTPS port 7098
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /R " :7098 "') do (
+    if not "%%a"=="0" (
+        taskkill /PID %%a /F >nul 2>&1
+    )
 )
+
 echo Old services stopped (if any were running).
+timeout /t 2 /nobreak >nul
 
 echo [2/3] Starting .NET 8 Backend API...
 cd ProductCatalog.Api
@@ -31,7 +41,8 @@ cd ..
 
 echo ==========================================
 echo Application is booting up in separate windows!
-echo API: https://localhost:7001/swagger
+echo API: http://localhost:5190/swagger
+echo     https://localhost:7098/swagger
 echo UI:  http://localhost:4200
 echo ==========================================
 pause
