@@ -679,6 +679,201 @@ Now each component declares exactly what it needs. There is no global registrati
 
 ---
 
+### Angular Application Startup & Execution Flow
+
+When you run `ng serve` (or `npm start`), the Angular CLI reads `angular.json`, compiles TypeScript via esbuild/Vite, and serves the result on `http://localhost:4200`. But what happens inside the browser from the moment a user navigates to that URL until the product list is rendered? The chain is surprisingly deep.
+
+**The Complete Bootstrap Chain:**
+
+```
+ng serve / npm start
+      │
+      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  angular.json                                                                   │
+│  ► Tells the CLI: "The entry HTML is src/index.html"                            │
+│  ► Tells the CLI: "The TypeScript entry point is src/main.ts"                   │
+│  ► Tells the CLI: "Global styles are src/styles.scss"                           │
+│  ► In dev: swap environment.ts → environment.development.ts                     │
+└──────────────────────────────────┬──────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  index.html                                                                     │
+│  ► Browser loads this HTML document first                                       │
+│  ► <base href="/"> sets the root URL for Angular Router                         │
+│  ► CDN links load Bootstrap 5.3 CSS + Bootstrap Icons                           │
+│  ► <app-root></app-root> — empty custom element, placeholder for Angular        │
+│  ► CLI auto-injects <script> tags for compiled main.ts bundle at bottom         │
+└──────────────────────────────────┬──────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  main.ts                                                                        │
+│  ► bootstrapApplication(AppComponent, appConfig)                                │
+│  ► Creates Angular's root injector, initializes Zone.js (change detection),     │
+│    and mounts AppComponent into <app-root>                                      │
+└──────────────────────────────────┬──────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  app.config.ts                                                                  │
+│  ► provideRouter(routes) — registers the Router with route definitions          │
+│  ► provideHttpClient(withFetch()) — registers HttpClient using Fetch API        │
+│  ► These are application-wide DI providers (Angular's equivalent of Program.cs) │
+└──────────────────────────────────┬──────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  AppComponent  (selector: 'app-root')                                           │
+│  ► Renders: Navbar + <router-outlet /> + Footer                                 │
+│  ► <router-outlet /> is the viewport — Angular Router injects the active        │
+│    route's component here                                                       │
+└──────────────────────────────────┬──────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  app.routes.ts — Router evaluates the current URL                               │
+│  ► URL "/"          → redirectTo: 'products'                                    │
+│  ► URL "/products"  → lazy-load ProductListComponent                            │
+│  ► URL "/products/new" → lazy-load ProductFormComponent                         │
+│  ► URL "/products/edit/:id" → lazy-load ProductFormComponent                    │
+│  ► URL "**" (wildcard) → redirectTo: 'products'                                 │
+└──────────────────────────────────┬──────────────────────────────────────────────┘
+                                   │  (default: "/" → redirect → "/products")
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  ProductListComponent (lazy-loaded into <router-outlet />)                      │
+│  ► ngOnInit() fires → calls loadProducts()                                      │
+│  ► ProductService.getAll() → HttpClient.get<Product[]>(apiUrl + '/products')    │
+│  ► apiUrl comes from environment.development.ts: 'https://localhost:7001/api'   │
+│  ► On success: this.products = data; isLoading = false → table renders          │
+│  ► On error: errorMessage = 'Failed to load...' → error banner renders          │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Step-by-Step Walkthrough with Actual Code:**
+
+**Step 1 — `angular.json` (the build orchestrator):**
+
+You never call `main.ts` directly. The Angular CLI reads `angular.json` to discover the project's entry points. The key fields are:
+
+| Field in `angular.json` | Value | Purpose |
+|---|---|---|
+| `projects.*.architect.build.options.index` | `src/index.html` | The HTML shell loaded by the browser |
+| `projects.*.architect.build.options.browser` | `src/main.ts` | The TypeScript entry point compiled into the JS bundle |
+| `projects.*.architect.build.options.styles` | `["src/styles.scss"]` | Global stylesheets injected into `<head>` |
+| `projects.*.architect.serve` | — | Dev server config (port 4200, live-reload, etc.) |
+| `fileReplacements` (under dev config) | `environment.ts` → `environment.development.ts` | Swaps the environment file at compile time |
+
+> **The environment swap trick:** In production builds (`ng build`), `environment.ts` is used as-is (`apiUrl: '/api'` — a relative URL that hits the same server via NGINX). In dev builds (`ng serve`), Angular CLI replaces `environment.ts` with `environment.development.ts` (`apiUrl: 'https://localhost:7001/api'` — pointing directly at the .NET Kestrel server). Your code always imports from `environment.ts`; the CLI handles the swap invisibly.
+
+**Step 2 — `index.html` (the HTML shell):**
+
+```html
+<body>
+  <app-root></app-root>   <!-- Angular replaces this with AppComponent's template -->
+</body>
+```
+
+When the browser first loads `index.html`, `<app-root>` is an empty, meaningless HTML tag. The browser renders it as nothing. Then the compiled JavaScript bundle (auto-injected by the CLI) executes and Angular takes over.
+
+**Step 3 — `main.ts` (the ignition key):**
+
+```typescript
+bootstrapApplication(AppComponent, appConfig).catch(err => console.error(err));
+```
+
+This single line does *everything*:
+1. Creates Angular's **root injector** (the DI container — equivalent to `builder.Services` in .NET)
+2. Registers all providers from `appConfig` (Router, HttpClient)
+3. Initializes **Zone.js** (the change detection engine that monitors async operations)
+4. Compiles `AppComponent`'s template
+5. Finds `<app-root>` in the DOM and replaces it with the rendered template
+
+> **Why `bootstrapApplication` and not `bootstrapModule`?** In Angular 14+, standalone components eliminated the need for `NgModule`. `bootstrapApplication` boots a single component + a flat list of providers. The old `platformBrowserDynamic().bootstrapModule(AppModule)` is legacy.
+
+**Step 4 — `app.config.ts` (the provider registry):**
+
+```typescript
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideRouter(routes),              // Registers the Router service + route table
+    provideHttpClient(withFetch())      // Registers HttpClient using browser Fetch API
+  ]
+};
+```
+
+This is Angular's equivalent of the `builder.Services.Add...()` block in .NET's `Program.cs`. Every service registered here is available for injection anywhere in the app.
+
+| Provider | What it registers | .NET equivalent |
+|---|---|---|
+| `provideRouter(routes)` | Angular Router + route definitions from `app.routes.ts` | `app.MapControllers()` + `[Route]` attributes |
+| `provideHttpClient(withFetch())` | `HttpClient` service using native Fetch API | `builder.Services.AddHttpClient()` |
+
+**Step 5 — `AppComponent` renders the shell:**
+
+Angular compiles the inline template and inserts it into the DOM where `<app-root>` was:
+
+```
+┌──────────────────────────────────────────────┐
+│  <nav> Navbar (Product Catalog branding)     │
+├──────────────────────────────────────────────┤
+│  <router-outlet />  ← Router injects the    │
+│     active route's component HERE            │
+├──────────────────────────────────────────────┤
+│  <footer> Demo credits                       │
+└──────────────────────────────────────────────┘
+```
+
+**Step 6 — Router resolves the URL and lazy-loads the component:**
+
+The browser URL is `http://localhost:4200/`. The Router matches `{ path: '', redirectTo: 'products', pathMatch: 'full' }` and redirects to `/products`. It then matches the `/products` route:
+
+```typescript
+{
+  path: 'products',
+  loadComponent: () => import('./features/products/product-list/product-list.component')
+                         .then(m => m.ProductListComponent)
+}
+```
+
+`loadComponent` uses **dynamic `import()`** — the component's code is in a separate JavaScript chunk that is only downloaded when this route is first visited. This is **lazy loading**: if a user never navigates to `/products/new`, the `ProductFormComponent` bundle is never downloaded at all.
+
+**Step 7 — `ProductListComponent` initializes and fetches data:**
+
+Once lazy-loaded, Angular instantiates `ProductListComponent`. The DI container injects `ProductService` (which itself received `HttpClient` from the root injector). Then the lifecycle hook fires:
+
+```typescript
+ngOnInit(): void { this.loadProducts(); }
+
+loadProducts(): void {
+  this.isLoading = true;
+  this.productService.getAll().subscribe({
+    next: (data) => { this.products = data; this.isLoading = false; },
+    error: (err) => { this.errorMessage = 'Failed to load...'; this.isLoading = false; }
+  });
+}
+```
+
+`getAll()` returns an RxJS `Observable<Product[]>`. The `subscribe()` call triggers the actual HTTP request: `GET https://localhost:7001/api/products`. When the .NET API responds with JSON, Angular's `HttpClient` automatically deserializes it into a `Product[]` array using the TypeScript interface shape. The template re-renders with the data.
+
+**The full first-load timeline:**
+
+| Step | File | What happens | Time |
+|---|---|---|---|
+| 1 | `index.html` | Browser downloads HTML, CSS (Bootstrap CDN), empty `<app-root>` | ~50ms |
+| 2 | JS bundles | Browser downloads compiled Angular bundles (auto-injected `<script>`) | ~100ms |
+| 3 | `main.ts` | `bootstrapApplication()` creates injector, initializes Zone.js, compiles templates | ~80ms |
+| 4 | `AppComponent` | Navbar + Footer render, `<router-outlet>` is empty | ~5ms |
+| 5 | Router | URL `/` → redirect → `/products` → lazy-load `ProductListComponent` chunk | ~30ms |
+| 6 | `ProductListComponent` | `ngOnInit` → `ProductService.getAll()` → HTTP GET to .NET API | ~200ms |
+| 7 | Template | `@for` loop renders product table rows | ~5ms |
+
+> **Why is Step 6 the slowest?** It includes a network round-trip to the .NET API, which itself may trigger JIT compilation on the first request (see Section "What actually happens when you run a .NET application" above). Subsequent requests are significantly faster because both the Angular chunk is cached and the .NET JIT has already compiled the hot paths.
+
+---
+
 ## 3.5 The Dependency Injection (DI) Container in Depth
 
 The DI container is arguably the single most important concept in ASP.NET Core. It is what allows `ProductsController` to receive a `ProductService` without ever calling `new ProductService(...)`.
